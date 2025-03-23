@@ -237,7 +237,7 @@ class Model(nn.Module):
 
         x = rearrange(x, '(b n) f c -> b f n c', n=n)
         for i in range(1, self.block_depth):
-            ##-----------------Clusteing-----------------##
+            ##-----------------Clustering-----------------##
             if i == self.layer_index:
                 x_knn = rearrange(x, 'b f n c -> b (f c) n')
                 x_knn = self.pool(x_knn)

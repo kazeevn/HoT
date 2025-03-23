@@ -1,0 +1,9 @@
+*.pyc
+__pycache__
+demo/output
+pose_model*
+checkpoint/pretrained/hot_mixste/model_4097e.pth
+demo/lib/checkpoint/pose_hrnet_w48_384x288.pth
+demo/lib/checkpoint/yolov3.weights
+demo/video/cropped_fencing.mp4
+demo/video/sample_fencing.mp4

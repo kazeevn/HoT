@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 import torch
 
@@ -25,23 +24,22 @@ def qrot(q, v):
     qvec = q[..., 1:]
     uv = torch.cross(qvec, v, dim=len(q.shape) - 1)
     uuv = torch.cross(qvec, uv, dim=len(q.shape) - 1)
-    return (v + 2 * (q[..., :1] * uv + uuv))
+    return v + 2 * (q[..., :1] * uv + uuv)
 
 
 def qinverse(q, inplace=False):
     if inplace:
         q[..., 1:] *= -1
         return q
-    else:
-        w = q[..., :1]
-        xyz = q[..., 1:]
-        return torch.cat((w, -xyz), dim=len(q.shape) - 1)
+    w = q[..., :1]
+    xyz = q[..., 1:]
+    return torch.cat((w, -xyz), dim=len(q.shape) - 1)
 
 
 def wrap(func, *args, unsqueeze=False):
     args = list(args)
     for i, arg in enumerate(args):
-        if type(arg) == np.ndarray:
+        if isinstance(arg, np.ndarray):
             args[i] = torch.from_numpy(arg)
             if unsqueeze:
                 args[i] = args[i].unsqueeze(0)
@@ -51,15 +49,13 @@ def wrap(func, *args, unsqueeze=False):
     if isinstance(result, tuple):
         result = list(result)
         for i, res in enumerate(result):
-            if type(res) == torch.Tensor:
+            if isinstance(res, torch.Tensor):
                 if unsqueeze:
                     res = res.squeeze(0)
                 result[i] = res.numpy()
         return tuple(result)
-    elif type(result) == torch.Tensor:
+    if isinstance(result, torch.Tensor):
         if unsqueeze:
             result = result.squeeze(0)
         return result.numpy()
-    else:
-        return result
-
+    return result

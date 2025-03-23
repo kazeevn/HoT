@@ -29,6 +29,15 @@ from lib.yolov3.human_detector import load_model as yolo_model
 from lib.yolov3.human_detector import yolo_human_det as yolo_det
 from lib.sort.sort import Sort
 
+try:
+    import intel_extension_for_pytorch as ipex
+except ImportError:
+    ipex = None
+
+try:
+    import pnnx
+except ImportError:
+    pnnx = None
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train keypoints network')
@@ -41,7 +50,7 @@ def parse_args():
                         help='The model directory')
     parser.add_argument('--det-dim', type=int, default=416,
                         help='The input dimension of the detected image')
-    parser.add_argument('--thred-score', type=float, default=0.30,
+    parser.add_argument('--thred-score', type=float, default=0.10,
                         help='The threshold of object Confidence')
     parser.add_argument('-a', '--animation', action='store_true',
                         help='output animation')
@@ -70,8 +79,10 @@ def model_load(config):
     model = pose_hrnet.get_pose_net(config, is_train=False)
     if torch.cuda.is_available():
         model = model.cuda()
-
-    state_dict = torch.load(config.OUTPUT_DIR)
+        map_location = None
+    else:
+        map_location = torch.device('cpu')
+    state_dict = torch.load(config.OUTPUT_DIR, map_location=map_location)
     from collections import OrderedDict
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
@@ -81,11 +92,15 @@ def model_load(config):
     model.load_state_dict(new_state_dict)
     model.eval()
     # print('HRNet network successfully loaded')
-    
+    if ipex is None and pnnx is None:
+        model.compile(fullgraph=True)
+    elif ipex:
+        model = ipex.optimize(model)
+        model.compile(backend="ipex")
     return model
 
 
-def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
+def gen_video_kpts(video, det_dim=416, num_person=1, gen_output=False):
     # Updating configuration
     args = parse_args()
     reset_config(args)
@@ -101,6 +116,7 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
 
     kpts_result = []
     scores_result = []
+    pnnx_optimized = False
     for ii in tqdm(range(video_length)):
         ret, frame = cap.read()
 
@@ -124,7 +140,7 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
         if people_track.shape[0] == 1:
             people_track_ = people_track[-1, :-1].reshape(1, 4)
         elif people_track.shape[0] >= 2:
-            people_track_ = people_track[-num_peroson:, :-1].reshape(num_peroson, 4)
+            people_track_ = people_track[-num_person:, :-1].reshape(num_person, 4)
             people_track_ = people_track_[::-1]
         else:
             continue
@@ -136,19 +152,22 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
 
         with torch.no_grad():
             # bbox is coordinate location
-            inputs, origin_img, center, scale = PreProcess(frame, track_bboxs, cfg, num_peroson)
+            inputs, origin_img, center, scale = PreProcess(frame, track_bboxs, cfg, num_person)
 
             inputs = inputs[:, [2, 1, 0]]
 
             if torch.cuda.is_available():
                 inputs = inputs.cuda()
+            if pnnx and not pnnx_optimized:
+                pose_model = pnnx.export(pose_model, "pose_model.pt", inputs)
+                pnnx_optimized = True
             output = pose_model(inputs)
 
             # compute coordinate
             preds, maxvals = get_final_preds(cfg, output.clone().cpu().numpy(), np.asarray(center), np.asarray(scale))
 
-        kpts = np.zeros((num_peroson, 17, 2), dtype=np.float32)
-        scores = np.zeros((num_peroson, 17), dtype=np.float32)
+        kpts = np.zeros((num_person, 17, 2), dtype=np.float32)
+        scores = np.zeros((num_person, 17), dtype=np.float32)
         for i, kpt in enumerate(preds):
             kpts[i] = kpt
 
